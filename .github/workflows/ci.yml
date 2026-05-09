@@ -28,11 +28,22 @@ jobs:
           python-version: "3.11"
 
       - name: Install GDAL
-        run: sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev
 
       - name: Install dependencies
         run: pip install -r backend/requirements/local.txt
         working-directory: .
+
+      - name: Django system check
+        env:
+          DATABASE_URL: postgis://civiclens:civiclens@localhost:5432/civiclens_test
+          DJANGO_SETTINGS_MODULE: config.settings.local
+          SECRET_KEY: ci-test-key
+          ANTHROPIC_API_KEY: dummy
+        run: python manage.py check
+        working-directory: backend
 
       - name: Run tests
         env:
@@ -40,7 +51,8 @@ jobs:
           DJANGO_SETTINGS_MODULE: config.settings.local
           SECRET_KEY: ci-test-key
           ANTHROPIC_API_KEY: dummy
-        run: pytest
+        # exit code 5 = "no tests collected" — tolerate until tests are added
+        run: pytest -q || [ $? -eq 5 ]
         working-directory: backend
 
   frontend:
