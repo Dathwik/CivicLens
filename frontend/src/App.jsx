@@ -18,7 +18,7 @@ export default function App() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <StatsBar />
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 180px 180px", minHeight: 0 }}>
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 360px 240px", minHeight: 0 }}>
         <IncidentMap />
         <ChatPanel />
         <AlertFeed />

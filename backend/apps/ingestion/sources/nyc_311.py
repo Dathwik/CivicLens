@@ -1,6 +1,8 @@
 import logging
+from datetime import timedelta
 from django.conf import settings
 from django.contrib.gis.geos import Point
+from django.utils import timezone
 from sodapy import Socrata
 from apps.incidents.models import Incident
 from apps.search.documents import IncidentDocument
@@ -9,6 +11,11 @@ logger = logging.getLogger(__name__)
 
 DOMAIN = "data.cityofnewyork.us"
 DATASET_ID = "erm2-nwe9"  # 311 Service Requests
+
+# Pull a temporal spread, not just "most recent N", so dashboard time-range
+# filters (7/14/30/90 days) yield distinct counts.
+WEEKS_BACK = 12
+PER_WEEK_LIMIT = 400
 
 CATEGORY_MAP = {
     "Noise": Incident.Category.NOISE,
@@ -25,16 +32,27 @@ CATEGORY_MAP = {
 }
 
 
-def ingest(limit: int = 500) -> int:
+def ingest(weeks_back: int = WEEKS_BACK, per_week_limit: int = PER_WEEK_LIMIT) -> int:
     token = settings.NYC_OPEN_DATA_APP_TOKEN or None
     client = Socrata(DOMAIN, token, timeout=30)
 
-    records = client.get(
-        DATASET_ID,
-        limit=limit,
-        order="created_date DESC",
-        select="unique_key,complaint_type,descriptor,borough,incident_address,latitude,longitude,created_date,status",
-    )
+    records = []
+    end = timezone.now()
+    for _ in range(weeks_back):
+        start = end - timedelta(days=7)
+        where = (
+            f"created_date >= '{start.strftime('%Y-%m-%dT%H:%M:%S')}' "
+            f"AND created_date < '{end.strftime('%Y-%m-%dT%H:%M:%S')}'"
+        )
+        batch = client.get(
+            DATASET_ID,
+            where=where,
+            limit=per_week_limit,
+            order="created_date DESC",
+            select="unique_key,complaint_type,descriptor,borough,incident_address,latitude,longitude,created_date,status",
+        )
+        records.extend(batch)
+        end = start
 
     created = 0
     incidents = []

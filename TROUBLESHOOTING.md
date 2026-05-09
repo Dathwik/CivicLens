@@ -246,6 +246,68 @@ const BOROUGHS = ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"];
 
 ---
 
+## 17. Send button missing from chat panel
+
+**Symptom:** Typing in the chat input worked, but no Send button was visible to the right of the field — even pressing Enter felt like the only way to submit. The suggestion chips ("Show me noise complai…") were also clipped horizontally.
+
+**Root cause:** [App.jsx](frontend/src/App.jsx) defined the layout grid as `gridTemplateColumns: "1fr 180px 180px"` — 180px is far too narrow to hold a flex-1 input plus a Send button side by side, so the button overflowed the column edge and got clipped by the right-hand AlertFeed pane.
+
+**Fix:** Widened the chat column (and the alerts column, which had the same problem with its content):
+```jsx
+gridTemplateColumns: "1fr 360px 240px"
+```
+
+**Why:** The original sizing must have been picked when the panels were narrower / had less content. The clipped suggestion chip was the giveaway — the column couldn't even fit its own static text. Fixed-pixel grid columns are fragile to content growth; if this happens again, switch to `minmax(360px, 1fr)` or similar.
+
+---
+
+## 18. Last 7 / 14 / 30 days filters all show the same incident count
+
+**Symptom:** Selecting different time windows in the StatsBar dropdown returned identical totals (e.g. 497 for all of 7d, 14d, 30d). Only the 90d option produced a different number.
+
+**Root cause:** [nyc_311.py](backend/apps/ingestion/sources/nyc_311.py) and [nyc_crime.py](backend/apps/ingestion/sources/nyc_crime.py) both fetched only the most recent N records (`limit=500` / `limit=300`, `order=created_date DESC`). NYC 311 receives ~25k complaints/day, so 500 records all fell within a ~1-day window. Every 7/14/30/90 day filter matched the same set. Crime, being lower volume, was the only source that actually reached back weeks — which is why 90d differed.
+
+**Fix:** Replaced the "top-N" pull with **weekly time-bucketed pulls** in both sources. Each ingestion loops over `WEEKS_BACK=12` weeks, fetching `PER_WEEK_LIMIT` records per week using a Socrata `$where` clause on `created_date` / `cmplnt_fr_dt`:
+```python
+for _ in range(weeks_back):
+    start = end - timedelta(days=7)
+    where = (
+        f"created_date >= '{start.strftime('%Y-%m-%dT%H:%M:%S')}' "
+        f"AND created_date < '{end.strftime('%Y-%m-%dT%H:%M:%S')}'"
+    )
+    batch = client.get(DATASET_ID, where=where, limit=per_week_limit, order="created_date DESC", select=...)
+    records.extend(batch)
+    end = start
+```
+
+After re-running ingestion: 7d=892, 14d=1,285, 30d=2,078, 90d=6,625.
+
+**Why:** Socrata's `between … and …` SoQL form 500'd here (one query was the trace id, no useful error body). The `>= AND <` two-clause form works reliably and produces non-overlapping buckets. MTA alerts are real-time and don't need bucketing.
+
+---
+
+## 19. Map shows fewer pins than the StatsBar count claims
+
+**Symptom:** StatsBar reported "6,625 incidents" but the Mapbox layer rendered ~50 dots clustered in Manhattan. Same shape for any filter — the count was always the true total, the map was always a tiny subset.
+
+**Root cause:** [apps/search/views.py](backend/apps/search/views.py) built the response's `geojson` from the same paginated `hits` list it used for `results`. With `page_size=50` (default), the geojson always had ≤50 features regardless of how many incidents matched.
+
+**Fix:** Split the endpoint's two outputs. `results` stays paginated; `geojson` runs a separate ES query with `size=10000` (`GEO_CAP`, the index `max_result_window` default) and only the fields needed for plotting:
+```python
+geo_search = (
+    IncidentDocument.search()
+    .query(query)
+    .source(["title", "category", "borough", "timestamp", "location"])
+    .extra(size=GEO_CAP)
+)
+```
+
+After the fix and a `docker compose restart backend` (Daphne doesn't autoreload — see #8), the API returns geojson feature counts equal to `total` for every window we tested.
+
+**Why:** The two outputs serve different consumers. A future incident-list view needs pagination. The map needs every matching point to plot the heatmap and individual markers correctly. Sharing one paginated query was a hidden coupling that quietly broke the map as soon as the dataset grew past 50.
+
+---
+
 ## Things that looked like problems but weren't
 
 - **`postgres` platform mismatch warning** (`linux/amd64 vs linux/arm64/v8` on Apple Silicon) — runs fine under emulation, just slower. No action needed for dev.
@@ -253,7 +315,7 @@ const BOROUGHS = ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"];
 - **`favicon.ico 404`** — cosmetic, no favicon configured.
 - **`docker-compose.yml: the attribute version is obsolete`** — Compose v2 ignores `version: "3.9"`. Safe to delete the line.
 - **Naive datetime warnings during ingestion** (`DateTimeField received a naive datetime ... while time zone support is active`) — NYC 311's `created_date` lacks tz info; Django stores it but logs the warning. Could be silenced by parsing into `timezone.make_aware(...)` in the ingestion source.
-- **NYPD crime data heavily Bronx-skewed** — looks like a borough filter bias but isn't. [nyc_crime.py](backend/apps/ingestion/sources/nyc_crime.py) pulls the 300 most recent complaints (`order="cmplnt_fr_dt DESC"`) with no `where` clause. Socrata's NYPD dataset publishes in batches and the most recent batch happens to be Bronx-heavy (229 / 300 in the run we checked). Fix later by either bumping `limit` to 2–5k or looping per borough with `where=boro_nm='X'`.
+- **NYPD crime data heavily Bronx-skewed** — looks like a borough filter bias but isn't. Socrata's NYPD dataset publishes in batches and the most-recent batches we sample happen to be Bronx-heavy. Issue #18 widened the time window to 12 weeks of weekly buckets, which spread the data across boroughs better but didn't fully fix the skew. Looping per borough with `where=boro_nm='X'` would balance it out if you need parity.
 
 ---
 
