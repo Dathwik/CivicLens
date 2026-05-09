@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:15-3.3
+        env:
+          POSTGRES_DB: civiclens_test
+          POSTGRES_USER: civiclens
+          POSTGRES_PASSWORD: civiclens
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install GDAL
+        run: sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements/local.txt
+        working-directory: .
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgis://civiclens:civiclens@localhost:5432/civiclens_test
+          DJANGO_SETTINGS_MODULE: config.settings.local
+          SECRET_KEY: ci-test-key
+          ANTHROPIC_API_KEY: dummy
+        run: pytest
+        working-directory: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+        env:
+          VITE_MAPBOX_TOKEN: dummy
+          VITE_API_URL: http://localhost:8000

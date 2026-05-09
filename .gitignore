@@ -1,0 +1,86 @@
+# Secrets / env
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+
+# Claude / agent files
+CLAUDE.md
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Django
+*.sqlite3
+*.sqlite3-journal
+db.sqlite3
+local_settings.py
+media/
+staticfiles/
+celerybeat-schedule
+celerybeat-schedule.*
+celerybeat.pid
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# Node / Vite
+node_modules/
+.vite/
+dist/
+build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-compose.override.yml
+
+# Jupyter
+.ipynb_checkpoints/
